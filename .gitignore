@@ -1,0 +1,16 @@
+*.smc
+*.sfc
+*.exe
+*.dll
+*.o
+*.state
+*.State
+*.brstate
+*.pyc
+__pycache__/
+diagnostics/
+saves/
+controls.ini
+engine/.git/
+*.lnk
+bizhawk/*.ini
