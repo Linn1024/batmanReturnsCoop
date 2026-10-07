@@ -19,6 +19,7 @@ Addresses below are SNES CPU addresses for this ROM only. WRAM addresses omit ba
 | `80:BE2E` | Apply shared scroll displacement to player |
 | `80:D9C3` | Batarang update |
 | `84:828B`, `84:82D1`, `84:8317` | Native per-object AI dispatch boundaries |
+| `83:8C9A`, `83:8CBA`, `83:8CDF` | Side-view AI dispatch boundaries |
 | `87:F638` | Enemy attack contact against Batman |
 | `87:F53C` | Batman attack contact against enemy |
 | `80:C97E` | Native life charge after completed death animation |
@@ -39,9 +40,44 @@ Addresses below are SNES CPU addresses for this ROM only. WRAM addresses omit ba
 
 P2 replays the normal player update and screen-coordinate/projectile passes. Enemies still advance once, with the nearer player's context temporarily installed. This is not a full audit of every attack/grapple ownership path; ownership needs further work for simultaneous grabs and special scenes.
 
+Side-view dispatches now also select the nearer Batman, using rendered Y
+instead of belt-mode ground depth. Extra slots are filtered to living enemy
+types so lift/platform controllers retain their native context. The third
+projectile slot follows the selected player at AI entry and return.
+`verify_enemy_aggro_save.py` checks the reported QS0 with either owner in
+the nearer position: robots face, chase and damage that player, with
+deterministic state/video/audio replay.
+
+Belt-mode attack contact is independent of the nearer-player AI choice.
+On a miss at 87:F636, check the other player's existing melee/projectile
+context once, using the native collision routine. Restore the selected
+context at either hit return or the final miss. Reserved owner[9] records
+the swap for serialized states; native reactions and world updates run
+once. `verify_melee_target_save.py` reproduces the reported QS0 using real
+Down/Y input, tests reversed player ownership, and checks deterministic
+state/video/audio replay. Native ground-depth range checks remain intact.
+
+Side-view contact at 80:EF94 likewise tests P2's full attack context after
+P1 misses. The earlier retry swapped only projectile slots and entered at
+80:EFE2, skipping P2's melee check. The retry now enters at 80:EF94 and
+restores at the melee hit, projectile hit or final miss return. owner[9]=2
+marks a P1-to-P2 swap, and value 3 checks P1 when AI already selected P2;
+value 1 still restores legacy projectile-only
+saves correctly. The third projectile slot is swapped independently of the
+player prefix. `verify_side_melee_save.py` checks the latest reported QS0
+with real Y input and reversed player ownership, plus idle and replay checks.
+
 The shared camera uses the players' midpoint, native map boundaries, and screen-edge separation constraints. Death consumes one shared life and restores a normal player context at the partner; the final life follows native Game Over. Both Batmans now share the native arrival pose and gain independent controls after landing.
 
 ## Graphics
+
+Scripted belt poses copy P1's committed VRAM into P2's tile cache before
+applying any pending native DMA descriptors. Descriptor lengths can be
+zero after NMI has consumed an upload; copying the actor pose alone then
+leaves blue Batman's older combat tiles under a different sprite layout.
+`verify_script_tiles_save.py` checks the reported scene-clear QS0 against
+native body tiles for more than 200 frames, preserves private inventory
+and health, and verifies deterministic state/video/audio replay.
 
 Native player DMA descriptors reconstruct P2's private tile buffer from ROM. Pending tiles are committed alongside the next OAM upload, so new animation tiles do not appear under an older sprite list. Private tile caches never replace P1 or enemy VRAM.
 
@@ -228,6 +264,15 @@ partner keeps the same world X, and no discontinuous screen-X jump occurs.
 Movement assertions account for camera displacement. BizHawk also ran the
 reported P1-only right input for 300 frames from the preserved QS0.
 
+The native directional follow limits also apply: A0 bit 0 blocks forward
+follow and bit 1 blocks backward follow (80:BD2F / 80:BD58). Normal A0=2
+is forward-only, and the elevator's A0=CF locks both directions while its
+vertical script continues. Midpoint follow rejects a blocked direction;
+when both directions lock, it preserves the native scripted request. The deliberately
+free upper fire-corridor camera remains exempt. `verify_elevator_camera_save.py`
+checks the reported elevator QS0 with either/both players walking left/right,
+native ascent, falls/respawns without horizontal drift and full replay.
+
 ### Side-view batarang ownership
 
 P2 now replays the native projectile pass `80:AECA..AECE` with their own player
@@ -369,6 +414,17 @@ cross-process save checks pass.
 
 ### Shared camera during repeated grapples
 
+The private hook/projectile camera pass at 83:8C86 must run only with
+X=0550. This address is also the loop header for enemy slots 0640/0730;
+running the private pass on every visit subtracted the camera movement
+three times from P2's hook and batarangs. On the section-six rooftop this
+pulled P2's attached anchor backward, reversed the swing and left P2
+offscreen. The X guard restores one scroll subtraction for each player.
+`verify_rooftop_hooks_save.py` checks stationary world-space anchors during
+a camera pan, then real QS0 traversal with matching/staggered inputs,
+a delayed second player, reversed ownership and deterministic replay.
+This correction does not copy either player's swing state or inputs.
+
 Grappling temporarily permits horizontal offscreen movement. The camera fits
 both players when possible and follows the advancing player when their separation
 exceeds the viewport. There is no catch-up teleport. Normal walking retains the shared-screen camera behavior;
@@ -417,6 +473,14 @@ backward pans.
 
 ### Section-three floor-collapse transition
 
+After the descent reaches camera Y=0200, midpoint scrolling cannot go back
+past X=0E00, where the native script installed the lower room. Earlier
+columns still contain upper-corridor fire collision despite showing ordinary
+street scenery; native forward-only scrolling prevents visiting them.
+`verify_lower_room_boundary_save.py` tests the reported QS0 with
+invulnerability disabled, either/both players walking fully left, continued
+forward progress, next-section entry and deterministic state/video/audio.
+
 The native controller at 83:A3DE tracks the fire corridor's floor collapse.
 Its phase 2 at camera X 0E00 waits for vertical camera 0200 before installing
 the lower room. The two-pixel midpoint vertical follow let both players fall
@@ -431,6 +495,21 @@ deterministic, and walking right exits to section 4. The saved fixture and the
 user's original QS0 are preserved.
 
 ### Synchronized character arrivals
+
+Private sprite uploads preserve CPU state around their ROM reads, just as
+private native routine execution does. These reads must not charge extra
+emulated cycles: otherwise section 1's special window entrance pauses and
+jumps more slowly than the original. `verify_window_arrival.py` checks its
+native flags, exact 144-frame pause and 52-frame jump, synchronized partner
+poses, independent controls after landing, and state/video/audio replay.
+
+Section 1's window entrance gradually reduces P2's trailing distance from
+40 to 0 pixels across the native jump. He follows P1 through the same
+opening and lands at x=144 without repositioning at the end. The usual
+40-pixel offset would put him at x=104, inside the wall. Existing
+saves at the trapped landing recover on the next player update, preserving
+inventory and P1's world position. `verify_window_controls_save.py` checks
+the reported QS0, both walking directions, jumping and deterministic replay.
 
 owner[12] marks the entrance phase. Native player initialization at 80:BF33
 (side view) or 80:C8D8 (belt) clears prior private OAM and arms the phase.

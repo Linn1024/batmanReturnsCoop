@@ -34,8 +34,8 @@ try:
             if button == 2:
                 assert p.player(player, 0x350) == 0x12, 'Invulnerability blocked attack'
                 assert p.player(other, 0x350) != 0x12
-    # Either player can lead in either direction. The idle partner keeps a
-    # fixed world position, never wrapping across the 8-bit screen coordinate.
+    # Either player can lead forward and walk back to the native boundary.
+    # The idle partner stays at the same world position without wrapping.
     for lead in (1, 2):
         p.restore(base)
         for direction in (128, 64):
@@ -46,7 +46,9 @@ try:
                       p2=direction if lead == 2 else 0)
                 current = p.status()
                 other = 5 if lead == 1 else 3
-                assert all(14 <= current[a] <= 242 for a in (3, 5)), current
+                # The native edge check runs before the movement step;
+                # a full four-pixel step from x=16 can finish at x=12.
+                assert all(12 <= current[a] <= 242 for a in (3, 5)), current
                 assert abs(current[other]-previous[other]) <= 3
                 assert current[other]+p.word(0x17a0) == previous[other]+camera0
     p.restore(base)

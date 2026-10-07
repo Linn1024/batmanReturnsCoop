@@ -34,7 +34,7 @@ try:
                 else:
                     raise AssertionError(('No throw', player, facing, slot))
                 delta = -40 if facing else 40
-                assert word(player, slot+8) == word(player, 0x328)+delta
+                assert word(player, slot+8) == (word(player, 0x328)+delta)&65535
                 assert word(player, slot+12) == word(player, 0x32c)-56
                 assert word(player, slot) != 0, 'Projectile not rendered'
                 assert all(word(3-player, a+0x10) == 0 for a in (0x460, 0x4b0, 0x500))
@@ -55,6 +55,9 @@ try:
             p.set_word(player, 0x328, 100)
             p.set_word(player, 0x324, 0)
             p.set_word(1, 0x666, 32)
+            # Keep the target ahead of the thrower; nearest-player AI can
+            # otherwise move it behind the muzzle before this fixture starts.
+            p.set_word(1, 0x648, 200)
             for earlier in range(0x460, slot, 0x50):
                 p.set_word(player, earlier+0x10, 2)
                 p.set_word(player, earlier+8, 20)

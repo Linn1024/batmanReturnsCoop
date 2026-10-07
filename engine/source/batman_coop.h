@@ -213,6 +213,7 @@ static unsigned br_run(unsigned start,unsigned end){
  return carry;
 }
 static void br_upload(void){
+ SCPUState cpu=CPU;
  static const unsigned srcs[]={0x3a8,0x3b2,0x3ba},banks[]={0x3aa,0x3b8,0x3b9},dsts[]={0x3ac,0x3b4,0x3bc},lens[]={0x3ae,0x3b6,0x3be};
  unsigned k,i;
  for(k=0;k<3;k++){
@@ -220,6 +221,10 @@ static void br_upload(void){
   if(n && n<0x4000 && d+n<=65536){for(i=0;i<n;i++)br.tiles[d+i]=S9xGetByte(s+i);}
  }
  memset(br_tile_cached,0,sizeof(br_tile_cached));memset(br_effect_cached,0,sizeof(br_effect_cached));
+ /* Reading private sprite tiles must not consume native CPU time. The
+  * window entrance in section 1 uses a timed pause and jump; charging
+  * these extra ROM reads changes its trajectory and scene timing. */
+ CPU=cpu;
 }
 __declspec(dllexport) unsigned br_state_size(void){return sizeof(br);}
 __declspec(dllexport) void br_state_save(void*p){memcpy(p,&br,sizeof(br));}
@@ -431,10 +436,14 @@ static void br_draw_side_hook(void){
  memcpy(Memory.RAM+0xeb0,effects,sizeof(effects));
 }
 /* Swap projectile ownership without a transient, unsaved backup. */
+static void br_swap_side_third(void){
+ unsigned i;unsigned char v;
+ for(i=0;i<0x50;i++){v=Memory.RAM[0x500+i];Memory.RAM[0x500+i]=br_extra.third[i];br_extra.third[i]=v;}
+}
 static void br_swap_side_projectiles(void){
  unsigned i;unsigned char v;
  for(i=0;i<0xa0;i++){v=Memory.RAM[0x460+i];Memory.RAM[0x460+i]=br.p2.obj[0x140+i];br.p2.obj[0x140+i]=v;}
- for(i=0;i<0x50;i++){v=Memory.RAM[0x500+i];Memory.RAM[0x500+i]=br_extra.third[i];br_extra.third[i]=v;}
+ br_swap_side_third();
 }
 static void br_arrival_begin(void){
  br.active=0;br.owner[12]=1;br.stage=br_r16(0x76);
@@ -450,13 +459,39 @@ static void br_prepare_arrival(void){
     br_r16(0x35c)==2 && br_r16(0x350)==0x19 && !br_r16(0x3b0))br_arrival_begin();
 }
 static void br_arrival_pose(void){
+ int offset=-40;
  /* Reuse the native arrival pose, but never run its world/script effects
   * twice. P2 becomes independently controlled when the arrival has landed. */
  br_capture(&br.p2);
- if(br_r16(0x9a)==2)br_shift_grappler(br.p2.obj,-40);
+ /* The window's wall ends just behind the native landing. Ease P2's
+  * trailing distance from 40 to 0 pixels across the entrance jump so
+  * he follows the visible arc through the same opening as P1. */
+ if(br.stage==1 && br_r16(0x9a)==2 && br_r16(0x17a0)==256){
+  int progress=(short)br_r16(0x328)+64;
+  if(progress<0)progress=0;
+  if(progress>208)progress=208;
+  offset+=40*progress/208;
+ }
+ if(br_r16(0x9a)==2)br_shift_grappler(br.p2.obj,offset);
  else {unsigned x=br_r16(0x328)-40;br.p2.obj[8]=x;br.p2.obj[9]=x>>8;}
  br.p2.obj[0x58]=br.p2.obj[8];
  br_upload();br.active=br_r16(0x320)!=0;
+}
+static void br_window_landing(void){
+ /* Section 1 enters through the window at x=144. The usual trailing
+  * offset lands P2 at x=104, outside the room's solid left wall. Recover
+  * old saves at x=144, matching the new entrance's landing.
+  * Restrict this to the entrance landing, before the camera has scrolled. */
+ int x=(short)(br.p2.obj[8]|br.p2.obj[9]<<8);
+ if(br.stage==1 && br_r16(0x9a)==2 && br_r16(0x17a0)==256 &&
+    !br_r16(0x6a) && !br_r16(0xd6) && br_r16(0x328)==144 &&
+    br_r16(0x32c)==208 && br_r16(0x35c)==2 && br_r16(0x3b0) &&
+    br_r16(0x350)<0x14 && x==104 &&
+    (br.p2.obj[12]|br.p2.obj[13]<<8)==208 && br.p2.obj[0x3c]==2 &&
+    br.p2.obj[0x30]<0x14){
+  br_shift_grappler(br.p2.obj,40);
+  br.p2.obj[0x58]=br.p2.obj[8];
+ }
 }
 static int br_scripted_walk(void){
  return br_supported && br_r16(0x32)==6 && br_r16(0x9a)==1 &&
@@ -468,6 +503,10 @@ static void br_scripted_pose(void){
   * health and projectile contexts private; mirror only the actor pose. */
  memcpy(br.p2.obj,Memory.RAM+0x320,0x140);
  br.p2.obj[8]=x;br.p2.obj[9]=x>>8;br.p2.obj[0x58]=x;
+ /* Script poses share P1's animation. DMA lengths may already be cleared
+  * by NMI, so descriptors alone leave P2 using stale combat tiles. Start
+  * with the committed native tiles, then apply any queued pose upload. */
+ memcpy(br.tiles,Memory.VRAM,sizeof(br.tiles));
  br_upload();
 }
 static unsigned br_vehicle_word(unsigned a){return br.p2.obj[a-0x320]|br.p2.obj[a-0x31f]<<8;}
@@ -638,6 +677,7 @@ static void br_game_hook(unsigned pc){
   if((pc==0x80af08 || pc==0x80aec2) && br_r16(0x35c)==2 &&
      br_r16(0x3b0) && !br_r16(0x6a) && br_r16(0x350)<0x14){
    br.owner[12]=0;br_capture(&br.spawn);
+   br_window_landing();
   }else if(pc!=0x80944e)return;
  }
  if(pc==0x80af04 || pc==0x80aebe){
@@ -653,6 +693,27 @@ static void br_game_hook(unsigned pc){
   }
  }
  if(!br.active)return;
+ /* Enemy AI chooses the nearer Batman, but attack contact must test both.
+  * On a native miss, try the other player's existing attack context once.
+  * owner[9] preserves this swap across saves inside the collision routine;
+  * native hit reactions and the enemy/world update still execute once. */
+ if(br_r16(0x9a)==1){
+  if(br.owner[9] && (pc==0x87f5cd || pc==0x87f635 || pc==0x87f637)){
+   if(br.owner[9]==1){br_capture(&br.p2);br_install(&br.ai_saved);}
+   else {br_capture(&br.ai_saved);br_install(&br.p2);}
+   br.owner[9]=0;
+  }else if(pc==0x87f636 && !br.owner[9]){
+   BRPlayer *other=br.ai?&br.ai_saved:&br.p2;
+   unsigned attack=other->obj[0x60]|other->obj[0x61]<<8;
+   unsigned shot=(other->obj[0x150]|other->obj[0x151]<<8)&0x7fff;
+   if((attack && attack<0x80) || shot==2){
+    if(br.ai){br_capture(&br.p2);br_install(&br.ai_saved);br.owner[9]=2;}
+    else {br_capture(&br.ai_saved);br_install(&br.p2);br.owner[9]=1;}
+    br_jump(0x87f53c);return;
+   }
+  }
+ }
+ if(pc==0x80aebe && !br.owner[12])br_window_landing();
  if(br_scripted_walk() && !br.owner[12] && !br.ai){
   if(pc==0x80944e)br_scripted_pose();
   /* Do not replay the native script or replace its forced movement with
@@ -683,13 +744,25 @@ static void br_game_hook(unsigned pc){
   if(Memory.RAM[0x350]==0x18 && !br_r16(0x3f8))br_w16(0x3f8,2);
   if(br.p2.obj[0x30]==0x18 && !br.p2.obj[0xd8] && !br.p2.obj[0xd9])br.p2.obj[0xd8]=2;
  }
- /* The enemy's native scan checks P1 first, then P2 on a miss. Keep the
-  * real hit response and consume only the projectile belonging to its owner. */
+ /* Side-view enemies check P1's melee and shots, then P2's full attack
+  * context on a miss. The earlier projectile-only swap omitted punches.
+  * Keep owner[9]=1 restoration for saves made during the old shot scan. */
  if(br_r16(0x9a)==2){
-  if(pc==0x80f01e && !br.owner[9]){br_swap_side_projectiles();br.owner[9]=1;br_jump(0x80efe2);return;}
-  if(br.owner[9] && (pc==0x80f012 || pc==0x80f020)){br_swap_side_projectiles();br.owner[9]=0;}
+  if(pc==0x80f01e && !br.owner[9]){
+   if(br.ai){br_capture(&br.p2);br_install(&br.ai_saved);br.owner[9]=3;}
+   else {br_capture(&br.ai_saved);br_install(&br.p2);br.owner[9]=2;}
+   br_swap_side_third();br_jump(0x80ef94);return;
+  }
+  if(br.owner[9] && (pc==0x80f012 || pc==0x80f020 || pc==0x80efe1)){
+   if(br.owner[9]==2){br_capture(&br.p2);br_install(&br.ai_saved);br_swap_side_third();}
+   else if(br.owner[9]==3){br_capture(&br.ai_saved);br_install(&br.p2);br_swap_side_third();}
+   else br_swap_side_projectiles();
+   br.owner[9]=0;
+  }
  }
- if(pc==0x838c86 && br_r16(0x9a)==2){
+ /* 838C86 also loops over enemy slots 640/730. Private hook/projectile
+  * scroll belongs only to the first arrival here, after slot 500. */
+ if(pc==0x838c86 && ICPU.Registers.X.W==0x550 && br_r16(0x9a)==2){
   unsigned char hook[0x50];
   memcpy(hook,Memory.RAM+0x410,0x50);memcpy(Memory.RAM+0x410,br.p2.obj+0xf0,0x50);
   br_swap_side_projectiles();memcpy(scratch,Memory.RAM,32);
@@ -752,6 +825,15 @@ static void br_game_hook(unsigned pc){
    /* Side-view A0 bit 1 is its normal mode, not a camera lock.
     * Only the belt-scrolling path uses any nonzero A0 as a lock. */
    if(br_r16(0x9a)==1 && Memory.RAM[0xa0])delta=(short)scroll;
+   /* Native A0 bits 0/1 block forward/backward camera follow. Both are
+    * set on the elevator, whose lift remains fixed in the viewport.
+    * Normal side-view A0=2 allows forward scrolling only. Keep the
+    * deliberate free grapple camera, except when both directions lock. */
+   if(br_r16(0x9a)==2 && !br_fire_corridor()){
+    if((Memory.RAM[0xa0]&3)==3)delta=(short)scroll;
+    else if(!free && ((delta>0 && (Memory.RAM[0xa0]&1)) ||
+                      (delta<0 && (Memory.RAM[0xa0]&2))))delta=0;
+   }
    if(br_r16(0x9a)==2 && ((Memory.RAM[0xa0]&0x30) || br_r16(0xd6)))delta=(short)scroll;
    if(br_r16(0x9a)==2 && br_r16(0xd6)){
     /* Scripted pans must finish even when a co-op player starts near an edge.
@@ -771,17 +853,32 @@ static void br_game_hook(unsigned pc){
     br.p2.obj[8]=(x+shift)&255;br.p2.obj[9]=(x+shift)>>8;
     x=(br.p2.obj[0x38]|br.p2.obj[0x39]<<8)+shift;br.p2.obj[0x38]=x&255;br.p2.obj[0x39]=x>>8;
    }
+   /* The floor collapse installs the lower room at X=0E00, Y=0200.
+    * Its earlier columns still carry the upper corridor's fire collision.
+    * Native forward-only scrolling cannot return there; midpoint follow
+    * must likewise stay inside this room after the descent. */
+   if(pc==0x80aec2 && br.stage==3 && br_r16(0x17b0)>=0x200 &&
+      br_r16(0x17a0)>=0xe00 && (int)br_r16(0x17a0)+delta<0xe00)
+    delta=0xe00-br_r16(0x17a0);
    br_w16(0x17a4,delta);
   }
  }
- if(pc==0x84828b || pc==0x8482d1 || pc==0x848317){
-  int ex=(short)br_r16(ICPU.Registers.X.W+8),ey=(short)br_r16(ICPU.Registers.X.W+0x18);
-  int x1=(short)br_r16(0x328)-ex,y1=(short)br_r16(0x338)-ey;
-  int x2=(short)(br.p2.obj[8]|br.p2.obj[9]<<8)-ex,y2=(short)(br.p2.obj[0x18]|br.p2.obj[0x19]<<8)-ey;
-  if(x2*x2+y2*y2<x1*x1+y1*y1){br_capture(&br.ai_saved);br_install(&br.p2);br.ai=1;}
+ if(pc==0x84828b || pc==0x8482d1 || pc==0x848317 ||
+    pc==0x838c9a || pc==0x838cba ||
+    (pc==0x838cdf && br_r16(ICPU.Registers.X.W+0x10)>=0x80 && br_r16(ICPU.Registers.X.W+0x26))){
+  unsigned depth=br_r16(0x9a)==2?0x0c:0x18;
+  int ex=(short)br_r16(ICPU.Registers.X.W+8),ey=(short)br_r16(ICPU.Registers.X.W+depth);
+  int x1=(short)br_r16(0x328)-ex,y1=(short)br_r16(0x320+depth)-ey;
+  int x2=(short)(br.p2.obj[8]|br.p2.obj[9]<<8)-ex,y2=(short)(br.p2.obj[depth]|br.p2.obj[depth+1]<<8)-ey;
+  if(x2*x2+y2*y2<x1*x1+y1*y1){
+   br_capture(&br.ai_saved);br_install(&br.p2);br.ai=1;
+   if(br_r16(0x9a)==2)br_swap_side_third();
+  }
  }
- if(br.ai && (pc==0x84828f || pc==0x8482d5 || pc==0x84831b)){
+ if(br.ai && (pc==0x84828f || pc==0x8482d5 || pc==0x84831b ||
+              pc==0x838c9e || pc==0x838cbe || pc==0x838ce3)){
   br_capture(&br.p2);br_install(&br.ai_saved);br.ai=0;
+  if(br_r16(0x9a)==2)br_swap_side_third();
  }
  if(pc==0x80aeca){
   br_capture(&p1);memcpy(scratch,Memory.RAM,32);br_install(&br.p2);

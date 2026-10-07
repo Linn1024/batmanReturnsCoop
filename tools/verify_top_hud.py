@@ -40,11 +40,15 @@ try:
         assert current.crop((24, 64, 104, 72)).tobytes() == im.crop((24, 64, 104, 72)).tobytes()
         assert current.crop((24, 24, 104, 25)).tobytes() == im.crop((24, 24, 104, 25)).tobytes()
     assert len(set(health.values())) == 5
+    # Compare the native HUD at the same emulated frame: transparent icon
+    # margins can show animated scenery beneath the original game HUD.
+    p.restore(base); p.run()
+    unchanged = screenshot('top-hud-unchanged-next-frame')
     for item in (0, 1, 2):
         p.restore(base); p.set_player(2, 0x8e, item); p.run()
         current = screenshot(f'top-hud-weapon-{item}')
         weapon[item] = current.crop((120, 16, 136, 32)).tobytes()
-        assert current.crop((112, 48, 144, 80)).tobytes() == im.crop((112, 48, 144, 80)).tobytes()
+        assert current.crop((112, 48, 144, 80)).tobytes() == unchanged.crop((112, 48, 144, 80)).tobytes()
         assert current.crop((116, 12, 140, 16)).getbbox() is None
         assert current.crop((116, 32, 140, 36)).getbbox() is None
         assert p.read(0x8e) == 1
@@ -68,8 +72,14 @@ try:
         return p.save(), video.digest(), bytes(p.samples)
     expected = replay(); p.restore(saved); assert replay() == expected
     assert p.status()[2] == 0
-    p.restore(base); p.run(450, p1=128, p2=128); p.run(p1=2)
-    assert p.word(0x19a4) and not p.word(0x19ac), 'No ordinary enemy HUD'
+    p.restore(base)
+    for frame in range(600):
+        p.run(p1=128 | (2 if frame % 24 < 12 else 0), p2=128)
+        if p.word(0x19a4) and p.word(0x19a6) and not p.word(0x19ac):
+            break
+    else:
+        raise AssertionError('No ordinary enemy HUD')
+    p.run(2)  # Let the native HUD tile upload reach the rendered frame.
     enemy = screenshot('ordinary-enemy-top-hud')
     assert enemy.crop((152, 16, 248, 32)).getbbox() is not None
     assert any(enemy.getpixel((x, y)) != enemy.getpixel((x, y+40))
