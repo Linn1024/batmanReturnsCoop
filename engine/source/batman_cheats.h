@@ -17,11 +17,13 @@ static unsigned br_sublevels(unsigned level){
 static void br_heal(void){
  if(br_r16(0x32)==6){br_w16(0x8a,80);if(br.active)br.p2.hp=80;}
 }
+static int br_appearance_tick(unsigned held,unsigned edge);
 int br_menu_tick(unsigned p1,unsigned p2){
  unsigned held=p1|p2,edge=held&~BR_KEYS,was=BR_MENU;
  unsigned chord=((p1&0x9080)==0x9080)||((p2&0x9080)==0x9080);
  BR_KEYS=held;
  BR_BLOCK&=held;
+ if(br_appearance_tick(held,edge))return 1;
  if(chord && !BR_CHORD){
   BR_MENU=!BR_MENU;
   if(BR_MENU){BR_LEVEL=br_r16(0x72)%7;BR_SECTION=br_r16(0x74)%br_sublevels(BR_LEVEL);BR_ROW%=13;}

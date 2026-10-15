@@ -1,5 +1,7 @@
 # Development notes
 
+Shared workflow: [common co-op development guide](../coop-guides/COOP-DEVELOPMENT.md).
+
 The architectural references were the adjacent `aladdinGameCoop`, `splatterhouse` and `indianaJonesCoop` projects: retain original ROM behavior, isolate player state inside a modified core, run the world once, and preserve extra state in saves. No ROM instructions or executable WRAM trampolines are injected.
 
 The SNES core is vendored from `https://github.com/libretro/snes9x2005`, revision `a79dfe9047e7fec58808aefe48ad2bf499c7af11`. This build uses its native audio implementation, Windows x64 and RGB565. The game adapter recognizes only the 1 MiB ROM with CRC32 `E87DFDF6`; the launcher additionally checks SHA-256. Existing emulator notices remain in `engine/copyright`.
@@ -386,6 +388,14 @@ loaded the saved escalator scene and advanced 180 frames with the updated core.
 
 ### P2 grappling hook graphics
 
+The private hook renderer also handles belt levels. Those use the native
+80:EE54 builder and rope slots 11D0..14EF, while side-view levels use
+80:ECE4 and slots 0EB0..14EF. Both render P2's tip/segments from private
+tiles with their native rope palette and restore P1's shared effects.
+P2's belt object scroll pass starts at 84:8235 to include hook slot 0410.
+`verify_belt_rope_save.py` checks visible rope pixels in the reported QS0,
+simultaneous-rope isolation and deterministic state/video/audio replay.
+
 Side-view private rendering now includes hook tip slot 0410. The rope is generated
 by the native 80:ECE4 routine into effect slots 0EB0..14EF, which previously only
 ran for P1. br_draw_side_hook temporarily installs P2, uses ROM data bank 81,
@@ -643,3 +653,57 @@ verify_script_walk_save.py checks the reported QS0 with opposing P2 input,
 multiple native walk poses, constant separation, continuous visibility,
 scene completion, independent controls and exact save/video/audio replay.
 Arrival, co-op, boss-exit, tube and shadow/health-bar regressions pass.
+
+### Upper fire corridor background
+
+The reported QS2 has native safe floor at world X=2880..3007, but its
+second-background tile ring draws flames across that gap. Its fire-layer
+scroll also differs from the native camera-minus-1024 alignment. Expanded
+sprite limits are not responsible: the unmodified sprite limits retain the
+bad graphics when loading this save.
+
+Before sprite construction, br_fire_background restores that alignment and
+rebuilds the second background window using the native ROM page map,
+7FF040 metatile indices and 7FD000 tile definitions. This also repairs
+existing saves and supports fast or reversing shared camera movement.
+It applies only to the upper stage-three fire room after its background is
+active; collision, falling fire, enemy damage and the lower room are unchanged.
+
+verify_falling_fire_save.py compares the gap tiles with a fresh native
+single-player capture, checks unchanged collision RAM, both players standing
+safely for 150 frames with the nearby enemy removed, and exact 240-frame
+state/video/audio replay through movement and repeated hooks. Co-op, side
+hook, rooftop traversal and belt rope regressions pass.
+
+### Title-screen partner colors
+
+batman_appearance.h adds COOP OPTIONS as the third title entry, beneath the
+native Options row. At 80B132, navigation selects three rows and suppresses
+the original two-row toggle; 80B153 places the native cursor on the new row.
+Game Start and original Options still use their native dispatch. The new
+screen pauses the native title through the existing controller/menu frame
+path and draws a recolored native HUD portrait as its preview.
+
+Six indexed suit palettes share black outline/shadow entries and native
+skin/belt colors. br_player_colors also supplies Batmobile rendering. The
+partner HUD follows the selected palette; default blue retains its exact
+previous HUD colors. The portrait asset stores native two-bit HUD ink indices.
+
+Four unsigned words appended to the extra save suffix store the color,
+menu-open state and title/submenu rows. The previous full suffix remains
+accepted by retro_unserialize; missing words initialize to zero (blue).
+Native and older co-op layouts retain their existing compatibility paths.
+
+verify_colors_menu.py uses real input on both ports to check native Options,
+third-row wrapping, six distinct previews, back navigation, choice surviving
+game start and save/load, unchanged P1 pixels, old suffix loading and exact
+state/video/audio replay. Cheat, co-op, black-shadow/boss-bar, belt rope,
+rooftop hooks and falling-fire regressions also pass.
+
+The appearance screens now decode native BG3 title font tiles (010B..0124
+for A..Z) and their original palette, rather than using the debug bitmap
+font. The added title row starts at column 13, row 26, continuing the two-tile
+spacing of the native rows. The submenu uses a black background and the
+native Batman cursor. The menu regression compares the added OPTIONS word
+pixel-for-pixel with the original Options row. The build dependencies include
+both appearance headers so edits always rebuild the core.

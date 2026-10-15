@@ -22,6 +22,7 @@ static struct {
 typedef struct { unsigned count; SOBJ obj[128]; unsigned char anchor[128],blue[128]; } BRExtraOAM;
 static struct { BRExtraOAM pending,live; unsigned char third[0x50];
  unsigned terrain_stage,terrain_key[32768];unsigned char terrain[32768];
+ unsigned color,appearance,title_row,appearance_row;
 } br_extra;
 static unsigned char br_draw_blue[256];
 unsigned br_extra_size(void){return sizeof(br_extra);}
@@ -55,13 +56,26 @@ int br_identify(void){
  for(i=0;i<1048576;i++){crc^=Memory.ROM[i];for(k=0;k<8;k++)crc=(crc>>1)^(0xedb88320u&-(int)(crc&1));}
  br_supported=(~crc)==0xe87dfdf6u;return br_supported;
 }
+enum { BR_COLOR_COUNT=6 };
+static const char *br_color_names[BR_COLOR_COUNT]={"BLUE","RED","PURPLE","GREEN","GRAY","GOLD"};
+static const unsigned char br_suit_colors[BR_COLOR_COUNT][8][3]={
+ {{0,0,0},{0,0,0},{2,4,10},{3,8,17},{5,13,24},{8,18,28},{15,24,30},{24,29,31}},
+ {{0,0,0},{0,0,0},{10,2,3},{17,3,5},{24,5,7},{28,8,10},{30,15,17},{31,24,25}},
+ {{0,0,0},{0,0,0},{7,2,10},{12,3,17},{18,5,24},{23,8,28},{27,15,30},{30,24,31}},
+ {{0,0,0},{0,0,0},{2,8,4},{3,14,7},{5,21,10},{8,26,14},{15,29,20},{24,31,27}},
+ {{0,0,0},{0,0,0},{5,5,6},{9,9,11},{14,14,16},{19,19,21},{25,25,27},{30,30,31}},
+ {{0,0,0},{0,0,0},{9,6,2},{15,10,3},{22,16,5},{27,21,8},{30,26,15},{31,30,24}}
+};
+static unsigned br_suit_color(unsigned ink,unsigned brightness){
+ const unsigned char *rgb=br_suit_colors[br_extra.color%BR_COLOR_COUNT][ink&7];
+ return BUILD_PIXEL(rgb[0]*brightness/15,rgb[1]*brightness/15,rgb[2]*brightness/15);
+}
 static unsigned short br_colors[32];
 unsigned short *br_player_colors(void){
  unsigned i,b=PPU.Brightness;
  /* Preserve the native black shadow/outline ink; recolour body shading. */
- static const unsigned char blue[8][3]={{0,0,0},{0,0,0},{2,4,10},{3,8,17},{5,13,24},{8,18,28},{15,24,30},{24,29,31}};
  for(i=0;i<16;i++)br_colors[i]=IPPU.ScreenColors[128+i];
- for(i=1;i<8;i++)br_colors[i]=BUILD_PIXEL(blue[i][0]*b/15,blue[i][1]*b/15,blue[i][2]*b/15);
+ for(i=1;i<8;i++)br_colors[i]=br_suit_color(i,b);
  memcpy(br_colors+16,br_colors,16*sizeof(*br_colors));
  br_colors[18]=BUILD_PIXEL(0,0,0);
  return br_colors;
@@ -109,6 +123,32 @@ static int br_fire_corridor(void){
  return br.active && br.stage==3 && br_r16(0x9a)==2 &&
   br_r16(0x17b0)>=240 && br_r16(0x17b0)<=288 &&
   br_r16(0x17a0)>=2304 && br_r16(0x17a0)<=3584 && !br_r16(0xd6);
+}
+/* Rebuild this room's second background from the native 32-pixel map.
+ * Fast/reversing shared-camera pans can overrun its incremental tile queue,
+ * leaving flames drawn over safe ground. Do not alter hazard collision. */
+static void br_fire_background(void){
+ int x,y,cx,cy;unsigned map,width;SCPUState cpu;
+ if(br.stage!=3 || br_r16(0x9a)!=2 || br_r16(0x1892)!=255 ||
+    br_r16(0x17b0)<240 || br_r16(0x17b0)>288 ||
+    br_r16(0x17a0)<1024 || br_r16(0x17a0)>3584)return;
+ br_w16(0x17c0,br_r16(0x17a0)-1024);
+ cx=(br_r16(0x17c0)&~31)-64;cy=(br_r16(0x17d0)&~31)-64;
+ map=br_r16(0x183d)|(Memory.RAM[0x183f]<<16);width=Memory.RAM[0x1874];
+ if(!width)return;
+ cpu=CPU;
+ for(y=cy;y<cy+512;y+=32)for(x=cx;x<cx+512;x+=32){
+  unsigned page,tile,row,col;
+  if(x<0 || y<0 || x/256>=(int)width)continue;
+  page=S9xGetByte(map+(y/256)*width+x/256)&127;
+  tile=Memory.RAM[0x1f040+page*64+((y&255)>>5)*8+((x&255)>>5)];
+  for(row=0;row<4;row++)for(col=0;col<4;col++){
+   unsigned dest=2*(0x1000+((x&256)<<2)+((y&256)<<3)+((y&224)<<2)+((x&224)>>3)+row*32+col);
+   unsigned src=0x1d000+tile*32+row*8+col*2;
+   Memory.VRAM[dest]=Memory.RAM[src];Memory.VRAM[dest+1]=Memory.RAM[src+1];
+  }
+ }
+ CPU=cpu;
 }
 static void br_shift_grappler(unsigned char *body,int shift){
  int addr;
@@ -256,6 +296,7 @@ static void br_text(unsigned w,unsigned x,unsigned y,const char*s,unsigned color
  for(;*s;s++,x+=6){int n=*s>='0'&&*s<='9'?*s-'0':*s>='A'&&*s<='Z'?*s-'A'+10:-1;unsigned a,b;if(n<0)continue;for(a=0;a<5;a++)for(b=0;b<7;b++)if(glyphs[n][a]&(1<<b))if(x+a<w)br_output[(y+b)*w+x+a]=color;}
 }
 #include "batman_cheats.h"
+#include "batman_appearance.h"
 int br_relocate_hud(void){return br_supported && br.active && br_r16(0x32)==6;}
 static void br_boss_bar(unsigned w,unsigned h){
  unsigned hp=br_r16(0x19ae),kind=br_r16(0x19ac),layer,fill,x,y,scale=w/256,b=PPU.Brightness;
@@ -304,12 +345,14 @@ static void br_top_hud(unsigned w){
    * native silhouettes, lettering and orange two-tone health gauge. */
   if(x>=8 && x<24 && y>=24 && color!=BUILD_PIXEL(0,0,0)){
    static const unsigned char blue[4][3]={{0,0,0},{2,4,10},{5,13,24},{18,25,31}};
-   color=BUILD_PIXEL(blue[ink][0]*b/15,blue[ink][1]*b/15,blue[ink][2]*b/15);
+   color=br_extra.color%BR_COLOR_COUNT?br_suit_color(ink*2,b):
+    BUILD_PIXEL(blue[ink][0]*b/15,blue[ink][1]*b/15,blue[ink][2]*b/15);
   }
   if(x>=24 && x<104 && y>=24 && y<32){
    /* Ink 1 is the lettering's shadow, not another foreground tone. */
    color=ink==1?BUILD_PIXEL(0,0,0):ink==2?
-    BUILD_PIXEL(5*b/15,17*b/15,31*b/15):BUILD_PIXEL(10*b/15,26*b/15,31*b/15);
+    (br_extra.color%BR_COLOR_COUNT?br_suit_color(4,b):BUILD_PIXEL(5*b/15,17*b/15,31*b/15)):
+    (br_extra.color%BR_COLOR_COUNT?br_suit_color(6,b):BUILD_PIXEL(10*b/15,26*b/15,31*b/15));
   }
   for(i=0;i<scale;i++)br_output[(y-8)*w+x*scale+i]=color;
  }
@@ -356,7 +399,7 @@ unsigned short *br_video(const unsigned short*src,unsigned w,unsigned h,unsigned
  br_top_hud(w);
  br_boss_bar(w,h);
  br_p2_weapon_hud(w);
- br_menu_draw(w,h);
+ br_menu_draw(w,h);br_appearance_draw(w,h);
  return br_output;
 }
 unsigned char* br_graphics(void){return br.visible_tiles;}
@@ -421,18 +464,19 @@ static void br_draw_player(unsigned marker){
  * P2's segments only while drawing, then restore P1's original effect list. */
 static void br_draw_side_hook(void){
  BRPlayer p1;unsigned char effects[0x640],work[32];unsigned slot;
+ unsigned belt=br_r16(0x9a)==1,first=belt?0x11d0:0xeb0;
  br_draw_player(0xff04);
  if(!br.p2.obj[0xca] && !br.p2.obj[0xcb])return;
  memcpy(effects,Memory.RAM+0xeb0,sizeof(effects));memcpy(work,Memory.RAM,32);
  br_capture(&p1);br_install(&br.p2);
  /* Preserve native tile/palette metadata in each effect slot. The rope
   * builder only writes geometry; zeroing whole slots selects Batman tiles. */
- for(slot=0xeb0;slot<0x14f0;slot+=0x50)br_w16(slot,0);
+ for(slot=first;slot<0x14f0;slot+=0x50)br_w16(slot,0);
  {unsigned db=ICPU.Registers.DB,shifted=ICPU.ShiftedDB;ICPU.Registers.DB=0x81;ICPU.ShiftedDB=0x810000;
-  br_run(0x80aeda,0x80aede);ICPU.Registers.DB=db;ICPU.ShiftedDB=shifted;}
+  br_run(belt?0x80af24:0x80aeda,belt?0x80af28:0x80aede);ICPU.Registers.DB=db;ICPU.ShiftedDB=shifted;}
  br_capture(&br.p2);br_install(&p1);
  memcpy(Memory.RAM,work,32);
- for(slot=0xeb0;slot<0x14f0;slot+=0x50)if(br_r16(slot))br_draw_player(0x10000+slot);
+ for(slot=first;slot<0x14f0;slot+=0x50)if(br_r16(slot))br_draw_player(0x10000+slot);
  memcpy(Memory.RAM+0xeb0,effects,sizeof(effects));
 }
 /* Swap projectile ownership without a transient, unsaved backup. */
@@ -616,6 +660,7 @@ static void br_tube_enemy_read(unsigned pc){
  }
 }
 static void br_game_hook(unsigned pc){
+ br_appearance_opcode(pc);
  BRPlayer p1;unsigned char scratch[32],inputs[4];unsigned i;
  if(br_inside || !br_supported)return;
  if(pc==0x808492)br_cheat_load_level();
@@ -897,11 +942,11 @@ static void br_game_hook(unsigned pc){
   br_capture(&p1);memcpy(scratch,Memory.RAM,32);br_install(&br.p2);
   br_run(0x80af0c,0x80af18);br_capture(&br.p2);br_install(&p1);memcpy(Memory.RAM,scratch,32);memcpy(Memory.RAM+0x4b0,shadow,0x50);
  }
- if(pc==0x848279){br_capture(&p1);memcpy(scratch,Memory.RAM,32);br_install(&br.p2);br_run(0x848243,0x848279);br_capture(&br.p2);br_install(&p1);memcpy(Memory.RAM,scratch,32);}
+ if(pc==0x848279){br_capture(&p1);memcpy(scratch,Memory.RAM,32);br_install(&br.p2);br_run(0x848235,0x848279);br_capture(&br.p2);br_install(&p1);memcpy(Memory.RAM,scratch,32);}
  if(pc==0x80944e){
   /* Shared object updates can still displace a swinging body after the
    * player/camera passes. Enforce visibility before building either OAM. */
-  br_fire_keep_visible();
+  br_fire_keep_visible();br_fire_background();
   unsigned count=0,j,k;unsigned entries[48],depths[48];
   memset(br.pending,0,128);br_extra.pending.count=0;
   while(count<48 && br_r16(0x15b0+count*2)){entries[count]=br_r16(0x15b0+count*2);depths[count]=br_r16(entries[count]+14);count++;}
@@ -929,6 +974,7 @@ static void br_game_hook(unsigned pc){
   if(br.owner[12] && marker==0x320){SICPU saved=ICPU;br_draw_player(0xff00);if(br_r16(0x9a)==2)br_draw_side_hook();ICPU=saved;return;}
   if(marker==0x320 || (marker>=0xff00 && marker<=0xff02)){
    br_draw_player(marker);
+   if(marker==0xff00 && br_r16(0x9a)==1){SICPU saved=ICPU;br_draw_side_hook();ICPU=saved;}
    if(marker==0x320 && br_r16(0x9a)==2){br_draw_player(0xff00);br_draw_player(0xff01);br_draw_player(0xff02);br_draw_player(0xff03);br_draw_side_hook();}
    br_jump(0x80947e);ICPU._Carry=0;
   }

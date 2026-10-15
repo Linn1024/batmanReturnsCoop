@@ -25,6 +25,18 @@ Double-click **Play Batman Returns Co-op.cmd** or **BatmanReturns-Coop.exe**. St
 
 Both controller Start buttons can pause. Keyboard/controller mapping follows the game's default control type.
 
+## Co-op options
+
+On the title screen, select **COOP OPTIONS**, directly below **OPTIONS**, and
+press **Start**. Either controller can choose Player 2's color: blue, red,
+purple, green, gray or gold. Left/Right changes the color with a portrait
+preview; A cycles it, and B returns to the title screen. Select BACK and
+press Start or A to return as well.
+
+The color applies to Player 2's sprites, Batmobile and top HUD. Ground shadows
+stay black. Blue remains the default, and the choice is included in save states;
+loading an older save uses blue.
+
 ## Cheat menu
 
 Press **SNES Start + A + B** together on either controller. With the default

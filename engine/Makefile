@@ -665,7 +665,7 @@ clean:
 endif
 
 # Dependencies introduced by Batman co-op.
-source/cpuexec.o: source/batman_coop.h source/batman_cheats.h
+source/cpuexec.o: source/batman_coop.h source/batman_cheats.h source/batman_appearance.h source/batman_portrait.h
 source/tile.o: source/tile.h
 
 # SGFX layout is shared across compilation units.
