@@ -707,3 +707,24 @@ spacing of the native rows. The submenu uses a black background and the
 native Batman cursor. The menu regression compares the added OPTIONS word
 pixel-for-pixel with the original Options row. The build dependencies include
 both appearance headers so edits always rebuild the core.
+
+### Independent buffered circle-attack input
+
+The native input mapper at 80:E61E builds EC from the current mapped input
+edges in DA and the previous frame's DA. Punch follow-ups at 80:CD2F read
+this two-frame buffer. The P2 pass previously replaced only D8/DA, so P1's
+jump+attack could turn P2's follow-up punch into a circle attack.
+
+The private player pass now supplies EC from P2's mapped current/previous
+edges and restores P1's EC afterward. Forced side-view script input remains
+shared as intended. The previous P2 edge word is serialized at the end of
+the extra suffix and reset at player initialization. Both the previous color
+suffix and the earlier pre-color suffix still load; missing input history
+starts empty without changing a saved color choice.
+
+verify_combo_inputs.py reproduces the follow-up punch case on either port
+with all four native control types. It checks that the partner cannot supply
+the jump, that a player's own adjacent-frame jump/attack still works, that
+both can circle together, and that saves between buffered inputs replay
+identical state/video/audio. Co-op, cheat/color menus, belt rope, rooftop
+hooks, side-view melee and partner-targeted melee regressions also pass.

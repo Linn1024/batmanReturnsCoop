@@ -940,7 +940,7 @@ bool retro_unserialize(const void* data, size_t size)
    uint32_t sa1_old_flags = SA1.Flags;
    SSA1 sa1_state;
 
-   if (size != retro_serialize_size() && size != retro_serialize_size()-16 && size != retro_serialize_size()-br_extra_size()+br_extra_old_size() && size != retro_serialize_size()-br_extra_size()+br_extra_old_size()-0x50 && size != retro_serialize_size()-br_extra_size() && size != retro_serialize_size()-br_extra_size()-br_state_size()-br_sound_size()-sizeof(float))
+   if (size != retro_serialize_size() && size != retro_serialize_size()-4 && size != retro_serialize_size()-20 && size != retro_serialize_size()-br_extra_size()+br_extra_old_size() && size != retro_serialize_size()-br_extra_size()+br_extra_old_size()-0x50 && size != retro_serialize_size()-br_extra_size() && size != retro_serialize_size()-br_extra_size()-br_state_size()-br_sound_size()-sizeof(float))
       return false;
 
    S9xReset();

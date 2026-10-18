@@ -23,6 +23,7 @@ typedef struct { unsigned count; SOBJ obj[128]; unsigned char anchor[128],blue[1
 static struct { BRExtraOAM pending,live; unsigned char third[0x50];
  unsigned terrain_stage,terrain_key[32768];unsigned char terrain[32768];
  unsigned color,appearance,title_row,appearance_row;
+ unsigned p2_input_edge;
 } br_extra;
 static unsigned char br_draw_blue[256];
 unsigned br_extra_size(void){return sizeof(br_extra);}
@@ -493,7 +494,7 @@ static void br_arrival_begin(void){
  br.active=0;br.owner[12]=1;br.stage=br_r16(0x76);
  memset(&br_extra.pending,0,sizeof(br_extra.pending));memset(&br_extra.live,0,sizeof(br_extra.live));
  memset(br.pending,0,sizeof(br.pending));memset(br.live,0,sizeof(br.live));
- memset(br_extra.third,0,sizeof(br_extra.third));br.owner[10]=br.owner[11]=0;br_extra.terrain_stage=0;
+ memset(br_extra.third,0,sizeof(br_extra.third));br.owner[10]=br.owner[11]=0;br_extra.terrain_stage=0;br_extra.p2_input_edge=0;
  IPPU.OBJChanged=true;
 }
 static void br_prepare_arrival(void){
@@ -730,7 +731,7 @@ static void br_game_hook(unsigned pc){
   if(br.active && br.stage!=br_r16(0x76))br.active=0;
   if(!br.owner[12] && !br.active && br_r16(0x35c)==2 && br_r16(0x3b0)){
    br.active=1;br.stage=br_r16(0x76);br_capture(&br.p2);memset(br_extra.third,0,0x50);
-   br.owner[10]=br.owner[11]=0;br_extra.terrain_stage=0;
+   br.owner[10]=br.owner[11]=0;br_extra.terrain_stage=0;br_extra.p2_input_edge=0;
    br.spawn=br.p2;
    br.p2.obj[8]=Memory.RAM[0x328]>80?Memory.RAM[0x328]-40:Memory.RAM[0x328]+40;
    br.p2.obj[0x58]=br.p2.obj[8];
@@ -826,15 +827,21 @@ static void br_game_hook(unsigned pc){
  }
  if(pc==0x80af08 || pc==0x80aec2){
   if(pc==0x80aec2){br.owner[10]=br_free_camera();br_remember_terrain();}
-  unsigned char third[0x50];unsigned scroll=br_r16(0x17a4),vertical=br_r16(0x17b4),vertical2=0;br_capture(&p1);br.ai_saved=p1;memcpy(scratch,Memory.RAM,32);memcpy(inputs,Memory.RAM+0xd8,4);
+  unsigned char third[0x50];unsigned scroll=br_r16(0x17a4),vertical=br_r16(0x17b4),vertical2=0,buffered=br_r16(0xec);br_capture(&p1);br.ai_saved=p1;memcpy(scratch,Memory.RAM,32);memcpy(inputs,Memory.RAM+0xd8,4);
   br_install(&br.p2);
   /* Scripted side-view scenes supply their own shared controller input. */
-  if(!(pc==0x80aec2 && br_r16(0xd6))){br_w16(0xd8,br_map_buttons(br.buttons));br_w16(0xda,br_map_buttons(br.buttons&~br.previous));}
+  if(!(pc==0x80aec2 && br_r16(0xd6))){
+   unsigned edge=br_map_buttons(br.buttons&~br.previous);
+   br_w16(0xd8,br_map_buttons(br.buttons));br_w16(0xda,edge);
+   /* Native E61E buffers this and the previous frame's mapped edges in EC.
+    * Punch follow-ups read EC rather than DA. Never borrow P1's combo. */
+   br_w16(0xec,edge|br_extra.p2_input_edge);br_extra.p2_input_edge=edge;
+  }else br_extra.p2_input_edge=br_r16(0xda);
   br.previous=br.buttons;
   if(pc==0x80aec2){br_w16(0x17b4,0);memcpy(third,Memory.RAM+0x500,0x50);memcpy(Memory.RAM+0x500,br_extra.third,0x50);}
   br_second=1;br_run(pc==0x80aec2?0x80aebe:0x80af04,pc);br_second=0;br_upload();br_capture(&br.p2);
   if(pc==0x80aec2){vertical2=br_r16(0x17b4);memcpy(br_extra.third,Memory.RAM+0x500,0x50);memcpy(Memory.RAM+0x500,third,0x50);}
-  br_install(&p1);memcpy(Memory.RAM,scratch,32);memcpy(Memory.RAM+0xd8,inputs,4);br_w16(0x17a4,scroll);br.frames++;
+  br_install(&p1);memcpy(Memory.RAM,scratch,32);memcpy(Memory.RAM+0xd8,inputs,4);br_w16(0xec,buffered);br_w16(0x17a4,scroll);br.frames++;
   if(pc==0x80aec2){
    int dy=(short)vertical;
    if(!br_r16(0xd6) && !(Memory.RAM[0xa0]&0x0c) &&
