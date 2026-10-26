@@ -386,14 +386,6 @@ unsigned short *br_video(const unsigned short*src,unsigned w,unsigned h,unsigned
   br_text(w,72,h/2,"LOADING LEVEL",BUILD_PIXEL(25,28,31));
   return br_output;
  }
- if(br.active){
-  unsigned blue=BUILD_PIXEL(5,17,31),white=BUILD_PIXEL(25,28,31);
-  if(br_r16(0x9a)==2){
-   int a=(short)br_r16(0x328),b=(short)(br.p2.obj[8]|br.p2.obj[9]<<8);
-   if(a<0 || a>255)br_text(w,a<0?4:w-48,40,a<0?"P1 LEFT":"P1 RIGHT",white);
-   if(b<0 || b>255)br_text(w,b<0?4:w-48,50,b<0?"P2 LEFT":"P2 RIGHT",blue);
-  }
- }
  memmove(br_output+32*w,br_output,h*w*2);
  memset(br_output,0,w*32*2);
  if(br.active && h>=40)memset(br_output+32*w,0,w*16*2);
@@ -739,6 +731,17 @@ static void br_game_hook(unsigned pc){
   }
  }
  if(!br.active)return;
+ /* Stungun's introduction owns D6/6A only in phases 2 and 3. Old saves
+  * can retain those flags in a combat phase; both controllers then
+  * remain masked because the phase-3 release countdown no longer executes.
+  * Recover saved scenes too, without skipping the introduction or exit. */
+ if(pc==0x83bce4 && br.stage==1 && br_r16(0x9a)==2 &&
+    br_r16(0xd6)==1 && br_r16(0x6a)==1){
+  unsigned slot=ICPU.Registers.X.W,phase=br_r16(slot+0x3c);
+  if(br_r16(slot+0x10)==0xae && br_r16(slot+0x26) && phase>=4 && phase<0x2a){
+   br_w16(0xd6,0);br_w16(0x6a,0);
+  }
+ }
  /* Enemy AI chooses the nearer Batman, but attack contact must test both.
   * On a native miss, try the other player's existing attack context once.
   * owner[9] preserves this swap across saves inside the collision routine;

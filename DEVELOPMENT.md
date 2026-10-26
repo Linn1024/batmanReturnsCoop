@@ -728,3 +728,24 @@ the jump, that a player's own adjacent-frame jump/attack still works, that
 both can circle together, and that saves between buffered inputs replay
 identical state/video/audio. Co-op, cheat/color menus, belt rope, rooftop
 hooks, side-view melee and partner-targeted melee regressions also pass.
+
+### Stungun combat QS0 with both players unable to move
+
+The reported save has stage 1, side-view mode, D6=1 and 6A=1, but the
+living Stungun actor (type AE) is already in combat phase 15. Those flags
+mask both controllers for the introduction. The native boss only clears
+them in phase 3 when its countdown reaches zero; that release cannot run
+once the actor is already fighting. This is a leftover script lock, not
+native pause or the player's damage timer.
+
+At native Stungun dispatch 83:BCE4, release these flags only for a living
+type-AE boss in combat phases 4..41, in stage 1 side-view mode, with both
+flags exactly 1. The real introduction and defeat/exit phases retain their
+native control ownership. The guard also repairs previously saved locks.
+
+verify_boss_control_lock_save.py restores the exact reported QS0 and checks
+both players can move without skipping the live boss. Additional movement
+checks enable invulnerability to isolate controls from the attack already
+in flight beside P2. Both directions, no relock, full state/video/audio
+replay and the original save hash are checked. Native introduction and boss
+exit, combo inputs, co-op, side melee and color-menu regressions pass.
