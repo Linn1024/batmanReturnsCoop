@@ -22,6 +22,13 @@ standalone saves/controls are copied there once when upgrading without replacing
 newer user files. If the selected ROM is moved or deleted, choose it again.
 These settings apply to the standalone EXE; BizHawk retains its own settings.
 
+In **Settings > Controls**, **Controller** means an Xbox-compatible game controller.
+Every keyboard/controller binding has a **Clear** button. Save shortcuts can also
+be changed or cleared there: **F5 quicksave**, **F8 quickload**, **F6 next slot**,
+and **F7 previous slot** by default. There are **10 slots (1-10)**; next/previous
+wrap at the ends. The selected slot is remembered. The **Saves** menu selects a
+slot or saves/loads directly, and the controls window has Save now/Load now buttons.
+
 
 An **opening-stage prototype** for the SNES USA version, using a modified emulator core. The original ROM is unchanged.
 
@@ -85,7 +92,7 @@ Both players use a separate sprite buffer, so adding the second player no longer
 the original game's 128 OAM slots or cuts off enemies in crowded scenes. The
 renderer supports 256 combined sprites; the game's native object limits remain.
 
-**F2** opens keyboard rebinding, **F5** saves, **F8** loads, **F9** pauses emulation, **F1** shows controls, and **Alt+Enter** toggles fullscreen. Choose one of nine save slots in the window menu. Standalone settings and `saves/slot-N.brstate` are in the per-user folder described above.
+**F2** opens keyboard rebinding, **F5** saves, **F8** loads, **F9** pauses emulation, **F1** shows controls, and **Alt+Enter** toggles fullscreen. Choose one of ten save slots in the Saves menu; F6/F7 select next/previous. Standalone settings and `saves/slot-N.brstate` are in the per-user folder described above.
 
 ## BizHawk
 

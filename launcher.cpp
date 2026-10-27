@@ -106,10 +106,10 @@ static LRESULT CALLBACK windowProc(HWND h,UINT m,WPARAM w,LPARAM l){
  if(m==WM_ERASEBKGND)return 1;
  if(m==WM_SYSKEYDOWN&&w==VK_RETURN){toggleFullscreen();return 0;}
  if(m==WM_KEYDOWN && !(l&(1L<<30))){
-  if(w==VK_F2){controls();return 0;}if(w==VK_F5){title(saveState()?"Saved":"Save failed");return 0;}if(w==VK_F8){title(loadState()?"Loaded":"Load failed or empty slot");return 0;}
+  if(w==VK_F2){controls();return 0;}
   if(w==VK_F9){paused=!paused;if(audioDevice)waveOutReset(audioDevice);title();return 0;}if(w==VK_F1){MessageBoxA(h,"P1: WASD, Space jump, F attack, G use item, Q switch item, R block.\nP2: arrows, L jump, J attack, K use item, O switch item, U block.\nEnter / controller Start: in-game pause.\nF2: controls. F5: save. F8: load. F9: emulator pause.\nAlt+Enter: fullscreen. Save menu: choose slot.","Batman Returns Co-op",MB_OK);return 0;}
  }
- if(m==WM_COMMAND){int id=LOWORD(w);if(id==1)controls();if(id==2)title(saveState()?"Saved":"Save failed");if(id==3)title(loadState()?"Loaded":"Load failed or empty slot");if(id>=101&&id<=109){slot=id-100;title();}return 0;}
+ if(m==WM_COMMAND){int id=LOWORD(w);if(id==1)controls();if(id==2)coopdesktop::saveAction(0);if(id==3)coopdesktop::saveAction(1);return 0;}
  if(m==WM_PAINT){PAINTSTRUCT ps;HDC dc=BeginPaint(h,&ps);RECT r;GetClientRect(h,&r);HDC mem=CreateCompatibleDC(dc);HBITMAP bitmap=CreateCompatibleBitmap(dc,std::max(1L,r.right),std::max(1L,r.bottom));auto old=SelectObject(mem,bitmap);FillRect(mem,&r,(HBRUSH)GetStockObject(BLACK_BRUSH));
   if(!pixels.empty()){double scale=std::min(double(r.right)/width,double(r.bottom)/height);int w1=int(width*scale),h1=int(height*scale);BITMAPINFO bi={};bi.bmiHeader.biSize=sizeof(BITMAPINFOHEADER);bi.bmiHeader.biWidth=width;bi.bmiHeader.biHeight=-(int)height;bi.bmiHeader.biPlanes=1;bi.bmiHeader.biBitCount=32;SetStretchBltMode(mem,COLORONCOLOR);StretchDIBits(mem,(r.right-w1)/2,(r.bottom-h1)/2,w1,h1,0,0,width,height,pixels.data(),&bi,DIB_RGB_COLORS,SRCCOPY);}
   BitBlt(dc,0,0,r.right,r.bottom,mem,0,0,SRCCOPY);SelectObject(mem,old);DeleteObject(bitmap);DeleteDC(mem);EndPaint(h,&ps);return 0;}
@@ -135,10 +135,11 @@ int main(int argc,char**argv){
  int desktopKeys[2][16]{};for(int p=0;p<2;p++)for(int b=0;b<12;b++)desktopKeys[p][b]=keys[p][b];
  unsigned desktopPads[16]{};for(int b=0;b<12;b++)desktopPads[b]=padButtons[b];
  coopdesktop::configure(desktopKeys,desktopPads,{{4,L"Up"},{5,L"Down"},{6,L"Left"},{7,L"Right"},{0,L"Jump"},{1,L"Attack"},{8,L"Use item"},{2,L"Switch item"},{10,L"Block L"},{11,L"Block R"},{3,L"Pause"}});
+ coopdesktop::setupSaves([](int s){slot=s;return saveState();},[](int s){slot=s;return loadState();},[](int s){slot=s;});
  if(!testFrames){
   SetProcessDPIAware();WNDCLASSA wc={};wc.lpfnWndProc=windowProc;wc.hInstance=GetModuleHandle(nullptr);wc.lpszClassName="BatmanReturnsCoop";wc.hCursor=LoadCursor(nullptr,IDC_ARROW);RegisterClassA(&wc);
 
-  HMENU menu=CreateMenu(),gameMenu=CreatePopupMenu(),slotMenu=CreatePopupMenu();AppendMenuA(gameMenu,MF_STRING,1,"Controls\tF2");AppendMenuA(gameMenu,MF_STRING,2,"Save\tF5");AppendMenuA(gameMenu,MF_STRING,3,"Load\tF8");AppendMenuA(menu,MF_POPUP,(UINT_PTR)gameMenu,"Game");for(int i=1;i<=9;i++){char n[16];snprintf(n,sizeof(n),"Slot %d",i);AppendMenuA(slotMenu,MF_STRING,100+i,n);}AppendMenuA(menu,MF_POPUP,(UINT_PTR)slotMenu,"Save slot");
+  HMENU menu=CreateMenu(),gameMenu=CreatePopupMenu();AppendMenuA(gameMenu,MF_STRING,1,"Controls\tF2");AppendMenuA(menu,MF_POPUP,(UINT_PTR)gameMenu,"Game");
   windowHandle=CreateWindowA("BatmanReturnsCoop","Batman Returns Co-op",WS_OVERLAPPEDWINDOW|WS_VISIBLE,CW_USEDEFAULT,CW_USEDEFAULT,800,800,nullptr,menu,GetModuleHandle(nullptr),nullptr);title();coopdesktop::attach(windowHandle,256,256);
   HMODULE xi=LoadLibraryA("xinput1_4.dll");if(!xi)xi=LoadLibraryA("xinput9_1_0.dll");if(xi)getPad=(GetPad)GetProcAddress(xi,"XInputGetState");
   WAVEFORMATEX wf={};wf.wFormatTag=WAVE_FORMAT_PCM;wf.nChannels=2;wf.nSamplesPerSec=(DWORD)av.timing.sample_rate;wf.wBitsPerSample=16;wf.nBlockAlign=4;wf.nAvgBytesPerSec=wf.nSamplesPerSec*4;waveOutOpen(&audioDevice,WAVE_MAPPER,&wf,0,0,CALLBACK_NULL);timeBeginPeriod(1);
