@@ -9,7 +9,7 @@ try {
     & mingw32-make -C engine platform=win CC=gcc -j8 -s
     if ($LASTEXITCODE) { throw 'Core build failed.' }
     if (-not $CoreOnly) {
-        & g++ launcher.cpp -std=c++17 -O2 -static -mwindows -lwinmm -lgdi32 -luser32 -lbcrypt -lshell32 -o BatmanReturns-Coop.exe
+        & g++ launcher.cpp -std=c++17 -O2 -static -mwindows -lwinmm -lgdi32 -luser32 -lbcrypt -lshell32 -o BatmanReturns-Coop.exe -lcomdlg32
         if ($LASTEXITCODE) { throw 'Launcher build failed.' }
     }
 } finally { $env:PATH=$previousPath; Pop-Location }

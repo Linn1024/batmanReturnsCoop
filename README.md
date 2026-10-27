@@ -1,5 +1,28 @@
 # Batman Returns Co-op
 
+## Portable EXE: choose a ROM and play
+
+[Download the portable Windows x64 ZIP](https://github.com/Linn1024/coop-releases/releases/download/windows-2026-10-27/BatmanReturns-Coop-Portable-Windows-x64.zip).
+
+1. Extract the entire ZIP and open **BatmanReturns-Coop.exe**. Keep its `engine` folder beside it.
+2. On first run, choose your own original USA ROM. Its filename and folder can
+   be anything; the launcher verifies the contents and remembers the location.
+3. Next time, open the same EXE to play. The ROM is read from its original
+   location and is not copied into the download.
+
+Use **Settings > Choose ROM** to select a different location, **Settings >
+Screen size** for 1x/2x/3x/4x windows or fullscreen, and **Settings > Controls**
+(or **F2**) to rebind either player's keyboard and Xbox-compatible gamepad.
+**F11** or **Alt+Enter** toggles fullscreen. Resizing the window and changing
+controls are remembered for the next launch.
+
+Settings and standalone saves live in `%LOCALAPPDATA%\Linn1024Coop\BatmanReturnsCoop`.
+**Settings > Open saves and settings folder** opens that folder. Existing local
+standalone saves/controls are copied there once when upgrading without replacing
+newer user files. If the selected ROM is moved or deleted, choose it again.
+These settings apply to the standalone EXE; BizHawk retains its own settings.
+
+
 An **opening-stage prototype** for the SNES USA version, using a modified emulator core. The original ROM is unchanged.
 
 Double-click **Play Batman Returns Co-op.cmd** or **BatmanReturns-Coop.exe**. Start the original game normally. A second Batman joins after the entrance animation lands.
@@ -62,7 +85,7 @@ Both players use a separate sprite buffer, so adding the second player no longer
 the original game's 128 OAM slots or cuts off enemies in crowded scenes. The
 renderer supports 256 combined sprites; the game's native object limits remain.
 
-**F2** opens keyboard rebinding, **F5** saves, **F8** loads, **F9** pauses emulation, **F1** shows controls, and **Alt+Enter** toggles fullscreen. Choose one of nine save slots in the window menu. Standalone settings are in `controls.ini`; saves are in `saves/slot-N.brstate`.
+**F2** opens keyboard rebinding, **F5** saves, **F8** loads, **F9** pauses emulation, **F1** shows controls, and **Alt+Enter** toggles fullscreen. Choose one of nine save slots in the window menu. Standalone settings and `saves/slot-N.brstate` are in the per-user folder described above.
 
 ## BizHawk
 
