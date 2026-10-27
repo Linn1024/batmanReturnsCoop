@@ -8,7 +8,7 @@ def press(button, controller=0):
     p.run(p1=button if controller==0 else 0, p2=button if controller==1 else 0)
     p.run()
 def extra():
-    return struct.unpack_from('<4I', p.save(), len(p.save())-20)
+    return struct.unpack_from('<4I', p.save(), len(p.save())-76)
 try:
     for frame in range(380):
         p.run(p1=8 if frame in (120,240) else 0)
@@ -65,7 +65,7 @@ try:
     red=p.frame[0];pitch=p.frame[3]
     p.screenshot(ROOT/'diagnostics/coop-color-red-gameplay.png')
     blue=bytearray(gameplay)
-    struct.pack_into('<I',blue,len(blue)-20,0)
+    struct.pack_into('<I',blue,len(blue)-76,0)
     p.restore(bytes(blue));p.run()
     original=p.frame[0]
     # Only partner material/HUD pixels change; P1 remains native.
@@ -73,8 +73,8 @@ try:
         assert red[y*pitch+120*2:y*pitch+156*2] == original[y*pitch+120*2:y*pitch+156*2]
     assert red!=original
     # Older color saves retain the choice; pre-color saves default to blue.
-    p.restore(gameplay[:-4]); assert extra()[0]==1
-    p.restore(gameplay[:-20]); assert extra()[0]==0
+    p.restore(gameplay[:-60]); assert extra()[0]==1
+    p.restore(gameplay[:-76]); assert extra()[0]==0
     p.restore(selected)
     def replay():
         video=hashlib.sha256();p.samples.clear()

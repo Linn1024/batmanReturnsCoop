@@ -24,6 +24,7 @@ static struct { BRExtraOAM pending,live; unsigned char third[0x50];
  unsigned terrain_stage,terrain_key[32768];unsigned char terrain[32768];
  unsigned color,appearance,title_row,appearance_row;
  unsigned p2_input_edge;
+ unsigned grab[2][5];unsigned char grab_owner[16];
 } br_extra;
 static unsigned char br_draw_blue[256];
 unsigned br_extra_size(void){return sizeof(br_extra);}
@@ -90,11 +91,19 @@ static unsigned br_map_buttons(unsigned raw){
  if(type==6){a=((low&0x80)?0xc0:0)|high;b=(low&0x30)|((low&0x40)<<1);if(br.buttons&0x30)b|=high&0x40;return(raw&0x3f00)|(a<<8)|b;}
  return raw;
 }
+/* Legacy BRPlayer snapshots keep their original layout. These parallel
+ * per-player values follow the same capture/install boundaries, including
+ * native AI and contact retries; local/ai_saved snapshots represent P1. */
+static const unsigned br_grab_addr[5]={0xa6,0xf8,0x1980,0x1982,0x19b2};
 static void br_capture(BRPlayer*p){
+ unsigned i,player=p==&br.p2;
+ for(i=0;i<5;i++)br_extra.grab[player][i]=i==1?Memory.RAM[0xf8]:br_r16(br_grab_addr[i]);
  memcpy(p->obj,Memory.RAM+0x320,sizeof(p->obj));p->hp=Memory.RAM[0x8a];p->weapon=Memory.RAM[0x8e];
  memcpy(p->timer,Memory.RAM+0x9c,2);p->face[0]=Memory.RAM[0xa8];p->face[1]=Memory.RAM[0xd4];
 }
 static void br_install(const BRPlayer*p){
+ unsigned i,player=p==&br.p2 || (p==&br.spawn && br_second);
+ for(i=0;i<5;i++)if(i==1)Memory.RAM[0xf8]=br_extra.grab[player][i];else br_w16(br_grab_addr[i],br_extra.grab[player][i]);
  memcpy(Memory.RAM+0x320,p->obj,sizeof(p->obj));Memory.RAM[0x8a]=p->hp;Memory.RAM[0x8e]=p->weapon;
  memcpy(Memory.RAM+0x9c,p->timer,2);Memory.RAM[0xa8]=p->face[0];Memory.RAM[0xd4]=p->face[1];
 }
@@ -486,7 +495,7 @@ static void br_arrival_begin(void){
  br.active=0;br.owner[12]=1;br.stage=br_r16(0x76);
  memset(&br_extra.pending,0,sizeof(br_extra.pending));memset(&br_extra.live,0,sizeof(br_extra.live));
  memset(br.pending,0,sizeof(br.pending));memset(br.live,0,sizeof(br.live));
- memset(br_extra.third,0,sizeof(br_extra.third));br.owner[10]=br.owner[11]=0;br_extra.terrain_stage=0;br_extra.p2_input_edge=0;
+ memset(br_extra.third,0,sizeof(br_extra.third));br.owner[10]=br.owner[11]=0;br_extra.terrain_stage=0;br_extra.p2_input_edge=0;memset(br_extra.grab,0,sizeof(br_extra.grab));memset(br_extra.grab_owner,0,sizeof(br_extra.grab_owner));
  IPPU.OBJChanged=true;
 }
 static void br_prepare_arrival(void){
@@ -723,7 +732,7 @@ static void br_game_hook(unsigned pc){
   if(br.active && br.stage!=br_r16(0x76))br.active=0;
   if(!br.owner[12] && !br.active && br_r16(0x35c)==2 && br_r16(0x3b0)){
    br.active=1;br.stage=br_r16(0x76);br_capture(&br.p2);memset(br_extra.third,0,0x50);
-   br.owner[10]=br.owner[11]=0;br_extra.terrain_stage=0;br_extra.p2_input_edge=0;
+   br.owner[10]=br.owner[11]=0;br_extra.terrain_stage=0;br_extra.p2_input_edge=0;memset(br_extra.grab,0,sizeof(br_extra.grab));memset(br_extra.grab_owner,0,sizeof(br_extra.grab_owner));
    br.spawn=br.p2;
    br.p2.obj[8]=Memory.RAM[0x328]>80?Memory.RAM[0x328]-40:Memory.RAM[0x328]+40;
    br.p2.obj[0x58]=br.p2.obj[8];
@@ -742,13 +751,23 @@ static void br_game_hook(unsigned pc){
    br_w16(0xd6,0);br_w16(0x6a,0);
   }
  }
+ if(pc==0x80d35c && br_r16(0x9a)==1){
+  unsigned slot=ICPU.Registers.X.W;
+  if(slot>=0x550 && slot<0xeb0 && (slot-0x550)%0xf0==0)
+   br_extra.grab_owner[(slot-0x550)/0xf0]=br.ai?2:1;
+ }
  /* Enemy AI chooses the nearer Batman, but attack contact must test both.
   * On a native miss, try the other player's existing attack context once.
   * owner[9] preserves this swap across saves inside the collision routine;
   * native hit reactions and the enemy/world update still execute once. */
  if(br_r16(0x9a)==1){
-  if(br.owner[9] && (pc==0x87f5cd || pc==0x87f635 || pc==0x87f637)){
-   if(br.owner[9]==1){br_capture(&br.p2);br_install(&br.ai_saved);}
+  if(br.owner[9] && (pc==0x87f53b || pc==0x87f5cd || pc==0x87f635 || pc==0x87f637)){
+   if(pc==0x87f53b && !ICPU.Registers.A.W && br_r16(0x380)==1){
+    /* A native grab succeeds during the other player's contact retry.
+     * Its caller must keep using that owner for attachment/animation,
+     * not restore the AI target before D35C changes the player's state. */
+    br.ai=br.owner[9]==1;
+   }else if(br.owner[9]==1){br_capture(&br.p2);br_install(&br.ai_saved);}
    else {br_capture(&br.ai_saved);br_install(&br.p2);}
    br.owner[9]=0;
   }else if(pc==0x87f636 && !br.owner[9]){
@@ -925,7 +944,17 @@ static void br_game_hook(unsigned pc){
   int ex=(short)br_r16(ICPU.Registers.X.W+8),ey=(short)br_r16(ICPU.Registers.X.W+depth);
   int x1=(short)br_r16(0x328)-ex,y1=(short)br_r16(0x320+depth)-ey;
   int x2=(short)(br.p2.obj[8]|br.p2.obj[9]<<8)-ex,y2=(short)(br.p2.obj[depth]|br.p2.obj[depth+1]<<8)-ey;
-  if(x2*x2+y2*y2<x1*x1+y1*y1){
+  int choose2=x2*x2+y2*y2<x1*x1+y1*y1;
+  if(br_r16(0x9a)==1){
+   unsigned slot=ICPU.Registers.X.W;
+   if(slot>=0x550 && slot<0xeb0 && (slot-0x550)%0xf0==0){
+    unsigned index=(slot-0x550)/0xf0,phase=br_r16(slot+0x3c),owner=br_extra.grab_owner[index];
+    int held=phase==11 || phase==12 || (phase>=30 && phase<=38);
+    if(!held || !br_r16(slot+0x26))br_extra.grab_owner[index]=owner=0;
+    if(owner)choose2=owner==2;
+   }
+  }
+  if(choose2){
    br_capture(&br.ai_saved);br_install(&br.p2);br.ai=1;
    if(br_r16(0x9a)==2)br_swap_side_third();
   }

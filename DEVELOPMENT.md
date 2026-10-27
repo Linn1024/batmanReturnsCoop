@@ -749,3 +749,34 @@ checks enable invulnerability to isolate controls from the attack already
 in flight beside P2. Both directions, no relock, full state/video/audio
 replay and the original save hash are checked. Native introduction and boss
 exit, combo inputs, co-op, side melee and color-menu regressions pass.
+
+### Two-enemy grab ownership
+
+The original belt-mode grab is initiated by walking into eligible enemies.
+The first contact enters a single hold; a second qualifying enemy can join
+and trigger the two-enemy head clash. Merely having two enemies visible does
+not guarantee both qualify. A native-core comparison with identical injected
+clown layouts confirms the single/double initiation sequences and unchanged
+range and timing.
+
+Co-op had a separate ownership bug. The belt contact retry could find the
+other player's walking grab, then return through 87:F53B, which was missing
+from the retry restoration paths. Subsequent attachment could use the wrong
+Batman. The grabbing counter A6 and double-hold flag F8 were also shared.
+This could split a two-enemy grab across a moving Batman and an idle partner.
+
+Successful walking grabs now retain their actual player's context through
+the remainder of the native enemy dispatch. Five grab fields (A6, F8, 1980,
+1982, 19B2) follow private capture/install boundaries without changing the
+legacy BRPlayer layout. Recorded enemy owners keep held enemies attached to
+the grabbing Batman, even if the partner becomes closer; ownership releases
+when the enemy leaves the native hold/clash states. Native collision still
+decides eligibility. No range, damage or animation thresholds were widened.
+
+The extra suffix appends 56 bytes of grab state/ownership; the previous
+input-buffer, color and pre-color suffixes remain accepted. Older saves start
+with empty private grab bookkeeping. verify_double_grab.py checks both owners,
+an idle nearby or overlapping partner, single-enemy cases, simultaneous
+single holds and double clashes, and full state/video/audio replay while
+holding enemies. When the local native-reference DLL is available it also
+compares the first 12 frames against original single-player execution.
